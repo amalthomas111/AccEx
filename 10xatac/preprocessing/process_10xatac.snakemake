@@ -1,0 +1,569 @@
+import os,glob
+
+configfile: 'atac_config.yaml'
+SAMPLES=[]
+for line in open("list.txt"):
+        if line!="" and line!="\n":
+                elements=line.strip().split("\t")
+                SAMPLES.append(elements[0])
+
+def get_chrom_size(wildcards):
+        if config["genome"]=="hg19":
+                return(config["hg19_sizes"])
+        elif config["genome"]=="mm10":
+                return(config["mm10_sizes"])
+        elif config["genome"]=="hg38":
+                return(config["hg38_sizes"])
+def get_blacklist(wildcards):
+        if config["genome"]=="hg19":
+                return(config["hg19_blacklist"])
+        elif config["genome"]=="mm10":
+                return(config["mm10_blacklist"])
+        elif config["genome"]=="hg38":
+                return(config["hg38_blacklist"])
+def return_macsgenome(wildcards):
+        if config["genome"]=="hg19" or config["genome"]=="hg38":
+                genome = "hs"
+        elif config["genome"]=="mm10":
+                genome = "mm"
+        elif config["genome"]=="dm6":
+                genome = "dm"
+        return(genome)
+
+rule all:
+        input:
+                expand('bams/{sample}.nodup.bam',sample=SAMPLES),
+                expand('bams/{sample}.nodup.chr.filt.bam',sample=SAMPLES),
+                expand("bams/featurebams/default/{sample}.modified.shift.featureCounts.sorted.bam",sample=SAMPLES),
+                expand("bams/featurebams/default/{sample}.modified.shift.featureCounts.sorted.bam.bai",sample=SAMPLES),
+                expand("bams/featurebams/q1e5/{sample}.modified.shift.featureCounts.sorted.bam",sample=SAMPLES),
+                expand("bams/featurebams/q1e5/{sample}.modified.shift.featureCounts.sorted.bam.bai",sample=SAMPLES),
+                expand("bams/featurebams/prom_enh_open/{sample}.modified.shift.featureCounts.sorted.bam",sample=SAMPLES),
+                expand("bams/featurebams/peaks_prom_enh_open/{sample}.modified.shift.featureCounts.sorted.bam",sample=SAMPLES),
+                expand("bams/featurebams/enhancer/{sample}.modified.shift.featureCounts.sorted.bam",sample=SAMPLES),
+                expand("bams/featurebams/promoter/{sample}.modified.shift.featureCounts.sorted.bam",sample=SAMPLES),
+                expand('beds/{sample}.modifed.shift.barcode.bed',sample=SAMPLES),
+                expand('tracks/default/{sample}.bb',sample=SAMPLES),
+                expand('tracks/q1e5/{sample}.bb',sample=SAMPLES),
+                expand('peaks/default/{sample}_peaks.narrowPeak.cleared',sample=SAMPLES),
+                expand('peaks/default/{sample}_peaks.narrowPeak.cleared',sample=SAMPLES),
+                expand("tracks/{sample}.bw",sample=SAMPLES),
+                expand("quality/{sample}_insertsize.txt",sample=SAMPLES),
+                expand("peaks/default/{sample}_peak.saf",sample=SAMPLES),
+                expand("peaks/q1e5/{sample}_peak.saf",sample=SAMPLES),
+                expand('bams/{sample}.modified.shift.bam',sample=SAMPLES),
+                expand("counts/{sample}.default.long.txt",sample=SAMPLES),
+                expand("counts/{sample}.default.tsv",sample=SAMPLES),
+                expand("counts/{sample}.q1e5.tsv",sample = SAMPLES),
+                expand("counts/{sample}.q1e5.long.txt",sample = SAMPLES),
+                expand("counts/{sample}.default.peaks_prom_enh_open.long.txt",sample=SAMPLES),
+                expand("beds/{sample}_barcode.counts.txt",sample=SAMPLES),
+                expand('beds/{sample}.modifed.shift.barcode.bed',sample=SAMPLES),
+                expand("beds/{sample}_prom_enh_open.barcode.counts.txt",sample=SAMPLES),
+                expand("beds/{sample}_peaks_prom_enh_open.barcode.counts.txt",sample=SAMPLES),
+                expand("beds/{sample}_default.barcode.counts.txt",sample=SAMPLES),
+                expand("countstable/{sample}.default.mtx",sample=SAMPLES),
+                expand("countstable/{sample}.default_regions.tsv",sample=SAMPLES),
+                expand("countstable/{sample}.default_barcodes.tsv",sample=SAMPLES)
+rule markduplicates_barcode:
+        input:
+                bam  = "bams/{sample}.bam",
+        output:
+                bam = "bams/{sample}.nodup.bam",
+                stats = "bams/{sample}_dup.metrics.txt"
+        log:
+                "logs/{sample}.markduplicates.log"
+        threads:4
+        shell:
+                r"""
+                picard MarkDuplicates REMOVE_DUPLICATES=true \
+                VALIDATION_STRINGENCY=LENIENT  BARCODE_TAG=CB  I={input.bam} \
+                O={output.bam}  M={output.stats}
+                """
+
+rule remove_unwanted_chroms:
+        input:
+                'bams/{sample}.nodup.bam'
+        output:
+                temp('bams/{sample}.nodup.chr.bam')
+        shell:
+                r"""
+                samtools view -h -F 4 {input} | awk 'substr($0,1,1) == "@" ||\
+                (length($3) <= 5 && $3 != "chrM" && $3 != "*") {{print $0}}' \
+                | samtools view -bS - > {output}
+                """
+rule filter_bam:
+        input:
+                'bams/{sample}.nodup.chr.bam'
+        output:
+                'bams/{sample}.nodup.chr.filt.bam'
+        shell:
+                r"""
+                 samtools view -b -h -q 30 {input} > {output}
+                 samtools index {output}
+                """
+rule indexfiltbam:
+        input:
+                'bams/{sample}.nodup.chr.filt.bam'
+        output:
+                'bams/{sample}.nodup.chr.filt.bam.bai'
+        shell:
+                r"""
+                samtools index {input}
+                """
+rule modifybamname:
+        input:
+                b1 = 'bams/{sample}.nodup.chr.filt.bam',
+        output:
+                b1 = 'bams/{sample}.modified.bam',
+                b2 = 'bams/{sample}.modified.bad.bam',
+        run:
+                import pysam,os
+                bam_handle = pysam.AlignmentFile(input.b1, "rb")
+                out_handle = pysam.AlignmentFile(output.b1, "wb", template=bam_handle)
+                out1_handle = pysam.AlignmentFile(output.b2, "wb",
+                                                  template=bam_handle)
+                count = 100000000000
+                for read in bam_handle:
+                    try:
+                        read.query_name = read.query_name+"_"+read.get_tag('CB')+"_"+str(count)
+                        out_handle.write(read)
+                        count = count + 1
+                    except KeyError:
+                        read.query_name = read.query_name+"_"+read.get_tag('CR')+"_"+str(count)
+                        out1_handle.write(read)
+                        count = count + 1
+
+                bam_handle.close()
+                out_handle.close()
+                out1_handle.close()
+rule indexpybam:
+        input:
+                'bams/{sample}.modified.bam'
+        output:
+                'bams/{sample}.modified.bam.bai'
+        shell:
+                r"""
+                samtools index {input}
+                """
+rule shiftedbam:
+        input:
+                b1 = 'bams/{sample}.modified.bam',
+                b1index = 'bams/{sample}.modified.bam.bai'
+        output:
+                b1 = protected('bams/{sample}.modified.shift.bam'),
+        shell:
+                r"""
+                alignmentSieve --ATACshift -p 4 -b  {input.b1} -o {output.b1}
+                """
+rule sortshiftedbam:
+        input:
+                'bams/{sample}.modified.shift.bam'
+        output:
+                bam = 'bams/{sample}.modified.shift.sorted.bam',
+                index = 'bams/{sample}.modified.shift.sorted.bam.bai'
+        threads: 4
+        shell:
+                r"""
+                samtools sort --threads 3  {input} -o {output.bam} && \
+                samtools index {output.bam}
+                """
+
+rule bedwithbarcode:
+        input:
+                'bams/{sample}.modified.bam'
+        output:
+                protected('beds/{sample}.modifed.shift.barcode.bed')
+        shell:
+                r"""
+                samtools view -F4 {input}| \
+                awk 'BEGIN{{OFS="\t"}}{{ for (i=12; i<=NF; ++i) \
+                {{ if ($i ~ "^CB:Z:"){{ cb = substr($i,6,18);}}}};\
+                if (and($2, 16) == 0){{print $3,$4-1+4,$4-1+length($10),$1,$5,"+",cb}}\
+                else {{print $3,$4-1,$4-1+length($10)-5,$1,$5,"-",cb}} }}' > \
+                {output}
+                """
+rule make_bedgraph_and_bigwig:
+        input:
+                bam = 'bams/{sample}.modified.shift.bam',
+                bed = 'beds/{sample}.modifed.shift.barcode.bed',
+                chrom_size = get_chrom_size
+        output:
+                bedgraph = temp('beds/{sample}.bedgraph'),
+                bigwig = 'tracks/{sample}.bw'
+        shell:
+                r"""
+                librarySize=$(samtools view -c -F 4 {input.bam})
+                expr="1000000 / $librarySize"
+                scaling_factor=$(echo $expr | bc -l)
+                echo "[librarySize: $librarySize]"
+                echo "[scaling_factor: $scaling_factor]"
+
+                awk '{{if(length($1)<=5){{print $0}}}}' {input.bed} |\
+                sort -k1,1 -k2,2n |bedtools genomecov -i stdin  \
+		-g {input.chrom_size}  -bg -scale $scaling_factor \
+                > {output.bedgraph}
+                bedGraphToBigWig {output.bedgraph} {input.chrom_size} \
+                {output.bigwig}
+                """
+
+rule call_macs_peaks:
+        input:
+                'beds/{sample}.modifed.shift.barcode.bed'
+        output:
+                peak_file1 = 'peaks/default/{sample}_peaks.narrowPeak',
+                peak_file2 = 'peaks/q1e5/{sample}_peaks.narrowPeak'
+        params:
+                prefix = '{sample}',
+                genome = return_macsgenome
+
+        shell:
+                r"""
+                source activate py2.7
+                macs2 callpeak --gsize {params.genome} -f BED \
+                --treatment {input} --outdir peaks/default \
+                --name {params.prefix} --qvalue 0.01 --keep-dup all \
+                --call-summits --shift -100 --extsize 200 --nomodel \
+                --nolambda  --verbose 3
+
+                macs2 callpeak --gsize {params.genome} -f BED --treatment {input} \
+                --outdir peaks/q1e5 --name {params.prefix} --qvalue 1e-5 \
+                --keep-dup all --call-summits --shift -100 --extsize 200 \
+                --nomodel --nolambda --verbose 3
+                """
+
+rule remove_blacklist:
+        input:
+                peak1 = 'peaks/default/{sample}_peaks.narrowPeak',
+                peak2 = 'peaks/q1e5/{sample}_peaks.narrowPeak',
+                blacklist = get_blacklist
+        output:
+                peak1 = 'peaks/default/{sample}_peaks.narrowPeak.cleared',
+                peak2 = 'peaks/q1e5/{sample}_peaks.narrowPeak.cleared'
+        shell:
+                r"""
+                intersectBed -v -a {input.peak1} -b {input.blacklist} \
+                > {output.peak1}
+                intersectBed -v -a {input.peak2} -b {input.blacklist} \
+                > {output.peak2}
+                """
+rule make_peak_track:
+        input:
+                peak1 = 'peaks/default/{sample}_peaks.narrowPeak.cleared',
+                peak2 = 'peaks/q1e5/{sample}_peaks.narrowPeak.cleared',
+                chrom_size = get_chrom_size
+        output:
+                bigbed1 = 'tracks/default/{sample}.bb',
+                bigbed2 = 'tracks/q1e5/{sample}.bb'
+        params:
+                temp1 = 'tracks/default/{sample}.temp',
+                temp2 = 'tracks/q1e5/{sample}.temp'
+        shell:
+                r"""
+                awk '{{OFS="\t"; print $1, $2, $3}}' {input.peak1} \
+                | sort -k 1,1 -k 2,2n > {params.temp1}
+                bedToBigBed {params.temp1} {input.chrom_size}\
+                {output.bigbed1}
+                awk '{{OFS="\t"; print $1, $2, $3}}' {input.peak2} \
+                | sort -k 1,1 -k 2,2n > {params.temp2}
+                bedToBigBed {params.temp2} {input.chrom_size}\
+                {output.bigbed2}
+
+                rm {params.temp1}
+                rm {params.temp2}
+                """
+rule plot_insertsize:
+        input:
+                bam = "bams/{sample}.modified.shift.bam",
+                Rcode = "/auto/rcf-40/amalthom/codes/atac-chip/singlecell/10x_atac/getinsertsize.R"
+        output:
+                "quality/{sample}_insertsize.txt"
+        shell:
+                r"""
+                samtools view -f66 {input.bam} |cut -f 9|sed 's/^-//' > \
+                {output} && \
+                Rscript {input.Rcode} {output}
+                """
+rule create_saf:
+        input:
+                p1 = 'peaks/default/{sample}_peaks.narrowPeak.cleared',
+                p2 = "peaks/q1e5/{sample}_peaks.narrowPeak.cleared"
+        output:
+                p1 = "peaks/default/{sample}_peak.saf",
+                p2 = "peaks/q1e5/{sample}_peak.saf"
+        shell:
+                r"""
+                cut -f1-3 {input.p1}|sort -k1,1 -k2,2n |bedtools merge -i - |\
+                awk -v OFS='\t' '{{print "r"NR"_"$1"."$2"."$3,$1,$2,$3,"."}}'\
+                 > {output.p1}
+                cut -f1-3 {input.p2}|sort -k1,1 -k2,2n |bedtools merge -i - |\
+                awk -v OFS='\t' '{{print "r"NR"_"$1"."$2"."$3,$1,$2,$3,"."}}'\
+                > {output.p2}
+                """
+rule count_reads_barcodes:
+        input:
+                "beds/{sample}.modifed.shift.barcode.bed"
+        output:
+                "beds/{sample}_barcode.counts.txt"
+        shell:
+                r"""
+                cat {input}|cut -f7|sort|uniq -c|awk '{{print $2"\t"$1}}'|sort -k2,2nr -k1,1  > {output}
+                """
+#bamToBed -i SINAA2.modified.shift.sorted.bam|head|cut -f4|cut -d'_' -f2|sort|uniq -c|awk '{print $1"\t"$2}'
+rule featurebam1:
+        input:
+                p1 = "peaks/default/{sample}_peak.saf",
+                bam = 'bams/{sample}.modified.shift.sorted.bam',
+                index = 'bams/{sample}.modified.shift.sorted.bam.bai'
+        output:
+                bam1 = "bams/featurebams/default/{sample}.modified.shift.sorted.bam.featureCounts.bam",
+        threads:4
+        params:
+                p1 = "{sample}_default",
+                path1 = "bams/featurebams/default",
+                f1 = "{sample}_default",
+                f2 = "{sample}_default.summary",
+        shell:
+                r"""
+                featureCounts -T 4 -a {input.p1} -F SAF -O -o {params.p1} -R BAM  {input.bam} --Rpath {params.path1} && \
+                mv {params.f1} {params.f2} {params.path1}
+                """
+rule sortindexfeaturebam1:
+        input:
+                bam1 = "bams/featurebams/default/{sample}.modified.shift.sorted.bam.featureCounts.bam",
+        output:
+                bam1 = "bams/featurebams/default/{sample}.modified.shift.featureCounts.sorted.bam",
+                i1 = "bams/featurebams/default/{sample}.modified.shift.featureCounts.sorted.bam.bai",
+        shell:
+                r"""
+                samtools sort {input.bam1} -o {output.bam1} && samtools index {output.bam1}
+                """
+rule umicounts_def2:
+        input:
+                bam1 = "bams/featurebams/default/{sample}.modified.shift.featureCounts.sorted.bam",
+                i1 = "bams/featurebams/default/{sample}.modified.shift.featureCounts.sorted.bam.bai"
+        output:
+                c2 = "counts/{sample}.default.long.txt"
+        shell:
+                r"""
+                umi_tools count --per-gene --gene-tag=XT   --per-cell \
+                 -I {input.bam1} -S {output.c2}
+                """
+rule featurebam2:
+        input:
+                p2 = "peaks/q1e5/{sample}_peak.saf",
+                bam = 'bams/{sample}.modified.shift.sorted.bam',
+                index = 'bams/{sample}.modified.shift.sorted.bam.bai'
+        output:
+                bam2 = "bams/featurebams/q1e5/{sample}.modified.shift.sorted.bam.featureCounts.bam"
+        threads:4
+        params:
+                p2 = "{sample}_q1e5",
+                path2 = "bams/featurebams/q1e5",
+                f1 = "{sample}_q1e5",
+                f2 = "{sample}_q1e5.summary",
+        shell:
+                r"""
+                featureCounts -T 4 -a {input.p2} -F SAF -O -o {params.p2} -R BAM  {input.bam} --Rpath {params.path2} && \
+                mv {params.f1} {params.f2} {params.path2}
+                """
+rule sortindexfeaturebam2:
+        input:
+                bam2 = "bams/featurebams/q1e5/{sample}.modified.shift.sorted.bam.featureCounts.bam"
+        output:
+                bam2 = "bams/featurebams/q1e5/{sample}.modified.shift.featureCounts.sorted.bam",
+                i2 = "bams/featurebams/q1e5/{sample}.modified.shift.featureCounts.sorted.bam.bai"
+        shell:
+                r"""
+                samtools sort {input.bam2} -o {output.bam2} && samtools index {output.bam2}
+                """
+rule umicounts_q2:
+        input:
+                bam1 = "bams/featurebams/q1e5/{sample}.modified.shift.featureCounts.sorted.bam",
+                i1 = "bams/featurebams/q1e5/{sample}.modified.shift.featureCounts.sorted.bam.bai"
+        output:
+                c2 = "counts/{sample}.q1e5.long.txt"
+        shell:
+                r"""
+                umi_tools count --per-gene --gene-tag=XT   --per-cell \
+                 -I {input.bam1} -S {output.c2}
+                """
+rule featurebam_prom_enh_open:
+        input:
+                p1 = "/panfs/cmb-panasas2/amalthom/software/genomes/promoter/mmusculus_GRCm38.p6_promoters2.5kb-enhancer-openchrom.merged.saf",
+                bam = 'bams/{sample}.modified.shift.sorted.bam',
+                index = 'bams/{sample}.modified.shift.sorted.bam.bai'
+        output:
+                bam1 = "bams/featurebams/prom_enh_open/{sample}.modified.shift.sorted.bam.featureCounts.bam",
+        threads:4
+        params:
+                p1 = "{sample}_prom_enh_open",
+                path1 = "bams/featurebams/prom_enh_open",
+                f1 = "{sample}_prom_enh_open",
+                f2 = "{sample}_prom_enh_open.summary",
+        shell:
+                r"""
+                featureCounts -T 4 -a {input.p1} -F SAF -O -o {params.p1} -R BAM  {input.bam} --Rpath {params.path1} && \
+                mv {params.f1} {params.f2} {params.path1}
+                """
+rule sortindexfeaturebam_prom_enh_open:
+        input:
+                bam1 = "bams/featurebams/prom_enh_open/{sample}.modified.shift.sorted.bam.featureCounts.bam",
+        output:
+                bam1 = "bams/featurebams/prom_enh_open/{sample}.modified.shift.featureCounts.sorted.bam",
+                i1 = "bams/featurebams/prom_enh_open/{sample}.modified.shift.featureCounts.sorted.bam.bai",
+        shell:
+                r"""
+                samtools sort {input.bam1} -o {output.bam1} && samtools index {output.bam1}
+                """
+rule featurebam_promoter:
+        input:
+                p1 = "/panfs/cmb-panasas2/amalthom/software/genomes/promoter/mmusculus_GRCm38.p6_promoters_std.Chr.2.5kb.sorted.merged.saf",
+                bam = 'bams/{sample}.modified.shift.sorted.bam',
+                index = 'bams/{sample}.modified.shift.sorted.bam.bai'
+        output:
+                bam1 = "bams/featurebams/promoter/{sample}.modified.shift.sorted.bam.featureCounts.bam",
+        threads:4
+        params:
+                p1 = "{sample}_promoter",
+                path1 = "bams/featurebams/promoter",
+                f1 = "{sample}_promoter",
+                f2 = "{sample}_promoter.summary",
+        shell:
+                r"""
+                featureCounts -T 4 -a {input.p1} -F SAF -O -o {params.p1} -R BAM  {input.bam} --Rpath {params.path1} && \
+                mv {params.f1} {params.f2} {params.path1}
+                """
+rule sortindexfeaturebam_promoter:
+        input:
+                bam1 = "bams/featurebams/promoter/{sample}.modified.shift.sorted.bam.featureCounts.bam",
+        output:
+                bam1 = "bams/featurebams/promoter/{sample}.modified.shift.featureCounts.sorted.bam",
+                i1 = "bams/featurebams/promoter/{sample}.modified.shift.featureCounts.sorted.bam.bai",
+        shell:
+                r"""
+                samtools sort {input.bam1} -o {output.bam1} && samtools index {output.bam1}
+                """
+rule featurebam_enhancer:
+        input:
+                p1 = "/panfs/cmb-panasas2/amalthom/software/genomes/promoter/mm10_95_regulation_enchancer.merged.saf",
+                bam = 'bams/{sample}.modified.shift.sorted.bam',
+                index = 'bams/{sample}.modified.shift.sorted.bam.bai'
+        output:
+                bam1 = "bams/featurebams/enhancer/{sample}.modified.shift.sorted.bam.featureCounts.bam",
+        threads:4
+        params:
+                p1 = "{sample}_enhancer",
+                path1 = "bams/featurebams/enhancer",
+                f1 = "{sample}_enhancer",
+                f2 = "{sample}_enhancer.summary",
+        shell:
+                r"""
+                featureCounts -T 4 -a {input.p1} -F SAF -O -o {params.p1} -R BAM  {input.bam} --Rpath {params.path1} && \
+                mv {params.f1} {params.f2} {params.path1}
+                """
+rule sortindexfeaturebam_enhancer:
+        input:
+                bam1 = "bams/featurebams/enhancer/{sample}.modified.shift.sorted.bam.featureCounts.bam",
+        output:
+                bam1 = "bams/featurebams/enhancer/{sample}.modified.shift.featureCounts.sorted.bam",
+                i1 = "bams/featurebams/enhancer/{sample}.modified.shift.featureCounts.sorted.bam.bai",
+        shell:
+                r"""
+                samtools sort {input.bam1} -o {output.bam1} && samtools index {output.bam1}
+                """
+
+rule featurebam_peak_prom_enh_open:
+        input:
+                p1 = 'peaks/default/{sample}_peaks.narrowPeak.cleared',
+                p2 = "/panfs/cmb-panasas2/amalthom/software/genomes/promoter/mmusculus_GRCm38.p6_promoters2.5kb-enhancer-openchrom.merged.bed",
+                bam = 'bams/{sample}.modified.shift.sorted.bam',
+                index = 'bams/{sample}.modified.shift.sorted.bam.bai'
+        output:
+                saf = "bams/featurebams/peaks_prom_enh_open/{sample}_peaks_prom_enh_open.saf",
+                bam1 = "bams/featurebams/peaks_prom_enh_open/{sample}.modified.shift.sorted.bam.featureCounts.bam",
+        threads:4
+        params:
+                p1 = "{sample}_peaks_prom_enh_open",
+                path1 = "bams/featurebams/peaks_prom_enh_open",
+                f1 = "{sample}_peaks_prom_enh_open",
+                f2 = "{sample}_peaks_prom_enh_open.summary",
+        shell:
+                r"""
+                cat <(cut -f1-3 {input.p1}) {input.p2}|sort -k1,1 -k2,2n |bedtools merge -i -| \
+                awk -v OFS='\t' '{{print "r"NR"_"$1"."$2"."$3,$1,$2,$3,"."}}'\
+                > {output.saf}
+                featureCounts -T 4 -a {output.saf} -F SAF -O -o {params.p1} -R BAM  {input.bam} --Rpath {params.path1} && \
+                mv {params.f1} {params.f2} {params.path1}
+                """
+rule sortindexfeaturebam_peaks_prom_enh_open:
+        input:
+                bam1 = "bams/featurebams/peaks_prom_enh_open/{sample}.modified.shift.sorted.bam.featureCounts.bam",
+        output:
+                bam1 = "bams/featurebams/peaks_prom_enh_open/{sample}.modified.shift.featureCounts.sorted.bam",
+                i1 = "bams/featurebams/peaks_prom_enh_open/{sample}.modified.shift.featureCounts.sorted.bam.bai",
+        shell:
+                r"""
+                samtools sort {input.bam1} -o {output.bam1} && samtools index {output.bam1}
+                """
+rule umicounts_peaks_prom_enh_open:
+        input:
+                bam1 = "bams/featurebams/peaks_prom_enh_open/{sample}.modified.shift.featureCounts.sorted.bam",
+                i1 = "bams/featurebams/peaks_prom_enh_open/{sample}.modified.shift.featureCounts.sorted.bam.bai",
+        output:
+                c1 = "counts/{sample}.default.peaks_prom_enh_open.long.txt",
+        shell:
+                r"""
+                umi_tools count --per-gene --gene-tag=XT   --per-cell \
+                 -I {input.bam1} -S {output.c1}
+                """
+rule peaks_default_barcode_counts:
+        input:
+                "bams/featurebams/default/{sample}.modified.shift.featureCounts.sorted.bam"
+        output:
+                "beds/{sample}_default.barcode.counts.txt"
+        shell:
+                r"""
+                samtools view {input} |\
+                awk '{{if($12 != "XS:Z:Unassigned_NoFeatures"){{split($1,names,"_");\
+                print names[2]}} }}'|sort|uniq -c|awk '{{print $2"\t"$1}}'|sort -k2,2nr > \
+                {output}
+                """
+rule peaks_prom_enh_open_barcode_counts:
+        input:
+                "bams/featurebams/peaks_prom_enh_open/{sample}.modified.shift.featureCounts.sorted.bam"
+        output:
+                "beds/{sample}_peaks_prom_enh_open.barcode.counts.txt"
+        shell:
+                r"""
+                samtools view {input} |\
+                awk '{{if($12 != "XS:Z:Unassigned_NoFeatures"){{split($1,names,"_");\
+                print names[2]}} }}'|sort|uniq -c|awk '{{print $2"\t"$1}}'|sort -k2,2nr > \
+                {output}
+                """
+
+rule prom_enh_open_barcode_counts:
+        input:
+                "bams/featurebams/prom_enh_open/{sample}.modified.shift.featureCounts.sorted.bam"
+        output:
+                "beds/{sample}_prom_enh_open.barcode.counts.txt"
+        shell:
+                r"""
+                samtools view {input} |\
+                awk '{{if($12 != "XS:Z:Unassigned_NoFeatures"){{split($1,names,"_");\
+                print names[2]}} }}'|sort|uniq -c|awk '{{print $2"\t"$1}}'|sort -k2,2nr > \
+                {output}
+                """
+rule filter_convert2wide:
+        input:
+                rcode = "/auto/rcf-40/amalthom/codes/atac-chip/singlecell/10x_atac/filtercells_2wide.R",
+                whitelist = "selected/{sample}_default_selected.cells.tsv",
+                counts_long = "counts/{sample}.default.long.txt"
+        output:
+                mtx = "countstable/{sample}.default.mtx",
+                regions = "countstable/{sample}.default_regions.tsv",
+                barcodes = "countstable/{sample}.default_barcodes.tsv"
+        shell:
+                r"""
+                Rscript {input.rcode} {input.whitelist} {input.counts_long}
+                """
