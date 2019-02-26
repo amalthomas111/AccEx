@@ -2,6 +2,8 @@ import os,glob
 
 configfile: 'atac_config.yaml'
 SAMPLES=[]
+
+#input file is 'list.txt' with bam names (without .bam)
 for line in open("list.txt"):
         if line!="" and line!="\n":
                 elements=line.strip().split("\t")
@@ -53,8 +55,6 @@ rule all:
                 expand("peaks/q1e5/{sample}_peak.saf",sample=SAMPLES),
                 expand('bams/{sample}.modified.shift.bam',sample=SAMPLES),
                 expand("counts/{sample}.default.long.txt",sample=SAMPLES),
-                expand("counts/{sample}.default.tsv",sample=SAMPLES),
-                expand("counts/{sample}.q1e5.tsv",sample = SAMPLES),
                 expand("counts/{sample}.q1e5.long.txt",sample = SAMPLES),
                 expand("counts/{sample}.default.peaks_prom_enh_open.long.txt",sample=SAMPLES),
                 expand("beds/{sample}_barcode.counts.txt",sample=SAMPLES),
@@ -275,7 +275,7 @@ rule make_peak_track:
 rule plot_insertsize:
         input:
                 bam = "bams/{sample}.modified.shift.bam",
-                Rcode = "/auto/rcf-40/amalthom/codes/atac-chip/singlecell/10x_atac/getinsertsize.R"
+                Rcode = config["insertsizeR"]
         output:
                 "quality/{sample}_insertsize.txt"
         shell:
@@ -390,7 +390,7 @@ rule umicounts_q2:
                 """
 rule featurebam_prom_enh_open:
         input:
-                p1 = "/panfs/cmb-panasas2/amalthom/software/genomes/promoter/mmusculus_GRCm38.p6_promoters2.5kb-enhancer-openchrom.merged.saf",
+                p1 = config["prom_enh_open_saf"],
                 bam = 'bams/{sample}.modified.shift.sorted.bam',
                 index = 'bams/{sample}.modified.shift.sorted.bam.bai'
         output:
@@ -418,7 +418,7 @@ rule sortindexfeaturebam_prom_enh_open:
                 """
 rule featurebam_promoter:
         input:
-                p1 = "/panfs/cmb-panasas2/amalthom/software/genomes/promoter/mmusculus_GRCm38.p6_promoters_std.Chr.2.5kb.sorted.merged.saf",
+                p1 = config["promoter_saf"],
                 bam = 'bams/{sample}.modified.shift.sorted.bam',
                 index = 'bams/{sample}.modified.shift.sorted.bam.bai'
         output:
@@ -446,7 +446,7 @@ rule sortindexfeaturebam_promoter:
                 """
 rule featurebam_enhancer:
         input:
-                p1 = "/panfs/cmb-panasas2/amalthom/software/genomes/promoter/mm10_95_regulation_enchancer.merged.saf",
+                p1 = config["enhancer_saf"],
                 bam = 'bams/{sample}.modified.shift.sorted.bam',
                 index = 'bams/{sample}.modified.shift.sorted.bam.bai'
         output:
@@ -476,7 +476,7 @@ rule sortindexfeaturebam_enhancer:
 rule featurebam_peak_prom_enh_open:
         input:
                 p1 = 'peaks/default/{sample}_peaks.narrowPeak.cleared',
-                p2 = "/panfs/cmb-panasas2/amalthom/software/genomes/promoter/mmusculus_GRCm38.p6_promoters2.5kb-enhancer-openchrom.merged.bed",
+                p2 = config["promoter_enh_open_bed"],
                 bam = 'bams/{sample}.modified.shift.sorted.bam',
                 index = 'bams/{sample}.modified.shift.sorted.bam.bai'
         output:
@@ -554,9 +554,21 @@ rule prom_enh_open_barcode_counts:
                 print names[2]}} }}'|sort|uniq -c|awk '{{print $2"\t"$1}}'|sort -k2,2nr > \
                 {output}
                 """
+rule cell_calling:
+        input:
+                counts = "beds/{sample}_default.barcode.counts.txt",
+                Rcode = config["cell_callingR"]
+        output:
+                "selected/{sample}_default_selected.cells.tsv"
+        shell:
+                r"""
+                Rscript {input.Rcode} {input.counts}
+
+                """
+
 rule filter_convert2wide:
         input:
-                rcode = "/auto/rcf-40/amalthom/codes/atac-chip/singlecell/10x_atac/filtercells_2wide.R",
+                rcode = config['filterR'],
                 whitelist = "selected/{sample}_default_selected.cells.tsv",
                 counts_long = "counts/{sample}.default.long.txt"
         output:
