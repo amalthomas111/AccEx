@@ -5,5 +5,6 @@ Input files:
 2. list.txt with names of bam files without .bam extension
 3. config_file: "atac_config.yaml"
 4. Rscripts: getinsertsize.R, findknee_default_fitmidRank.R, filtercells_2wide.R
+
 Software Requirements:
 picard, samtools, BEDtools, deeptools, MACS2, featurCounts,umi-tools, R, python3
