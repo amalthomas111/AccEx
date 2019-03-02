@@ -1,0 +1,36 @@
+__default__:
+        p: "cmb"
+        time : "300:00:00"
+        mem : "10000MB"
+        ntasks : "1"
+bowtie2_mapping:
+        mem : "24000MB"
+        ntasks : "4"
+rmDuplicates_Barcode:
+        mem: "30000MB"
+ShiftBam:
+        mem : "16000MB"
+        ntasks : "4"
+SortShiftedBam:
+        mem : "20000MB"
+        ntasks : "4"
+Featurebam_default:
+        mem : "16000MB"
+        ntasks: "4"
+featurebam2:
+        mem : "16000MB"
+        ntasks: "4"
+featurebam_enhancer:
+        mem : "16000MB"
+        ntasks: "4"
+featurebam_peak_prom_enh_open:
+        mem : "16000MB"
+        ntasks: "4"
+featurebam_prom_enh_open:
+        mem : "16000MB"
+        ntasks: "4"
+featurebam_promoter:
+        mem : "16000MB"
+        ntasks: "4"
+filter_convert2wide:
+        mem : "20000MB"

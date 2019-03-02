@@ -34,8 +34,10 @@ def return_macsgenome(wildcards):
 
 rule all:
         input:
+                expand('bams/{sample}.potential.bam',sample=SAMPLES),
                 expand('bams/{sample}.nodup.bam',sample=SAMPLES),
                 expand('bams/{sample}.nodup.chr.filt.bam',sample=SAMPLES),
+                expand('bams/{sample}.modified.shift.sorted.bam',sample=SAMPLES),
                 expand("bams/featurebams/default/{sample}.modified.shift.featureCounts.sorted.bam",sample=SAMPLES),
                 expand("bams/featurebams/default/{sample}.modified.shift.featureCounts.sorted.bam.bai",sample=SAMPLES),
                 expand("bams/featurebams/q1e5/{sample}.modified.shift.featureCounts.sorted.bam",sample=SAMPLES),
@@ -44,7 +46,6 @@ rule all:
                 expand("bams/featurebams/peaks_prom_enh_open/{sample}.modified.shift.featureCounts.sorted.bam",sample=SAMPLES),
                 expand("bams/featurebams/enhancer/{sample}.modified.shift.featureCounts.sorted.bam",sample=SAMPLES),
                 expand("bams/featurebams/promoter/{sample}.modified.shift.featureCounts.sorted.bam",sample=SAMPLES),
-                expand('beds/{sample}.modifed.shift.barcode.bed',sample=SAMPLES),
                 expand('tracks/default/{sample}.bb',sample=SAMPLES),
                 expand('tracks/q1e5/{sample}.bb',sample=SAMPLES),
                 expand('peaks/default/{sample}_peaks.narrowPeak.cleared',sample=SAMPLES),
@@ -53,7 +54,6 @@ rule all:
                 expand("quality/{sample}_insertsize.txt",sample=SAMPLES),
                 expand("peaks/default/{sample}_peak.saf",sample=SAMPLES),
                 expand("peaks/q1e5/{sample}_peak.saf",sample=SAMPLES),
-                expand('bams/{sample}.modified.shift.bam',sample=SAMPLES),
                 expand("counts/{sample}.default.long.txt",sample=SAMPLES),
                 expand("counts/{sample}.q1e5.long.txt",sample = SAMPLES),
                 expand("counts/{sample}.default.peaks_prom_enh_open.long.txt",sample=SAMPLES),
@@ -65,62 +65,26 @@ rule all:
                 expand("countstable/{sample}.default.mtx",sample=SAMPLES),
                 expand("countstable/{sample}.default_regions.tsv",sample=SAMPLES),
                 expand("countstable/{sample}.default_barcodes.tsv",sample=SAMPLES)
-rule markduplicates_barcode:
-        input:
-                bam  = "bams/{sample}.bam",
-        output:
-                bam = "bams/{sample}.nodup.bam",
-                stats = "bams/{sample}_dup.metrics.txt"
-        log:
-                "logs/{sample}.markduplicates.log"
-        threads:4
-        shell:
-                r"""
-                picard MarkDuplicates REMOVE_DUPLICATES=true \
-                VALIDATION_STRINGENCY=LENIENT  BARCODE_TAG=CB  I={input.bam} \
-                O={output.bam}  M={output.stats}
-                """
 
-rule remove_unwanted_chroms:
+
+rule Filter_ErrorCorrectedBCs:
+        """
+        Separate reads in 10x bam file that are not error corrected &
+        get mapping_stats
+        """
         input:
-                'bams/{sample}.nodup.bam'
+                b1 = 'bams/{sample}.bam',
+                mapping_stats_script = config["mappingstatsBASH"]
         output:
-                temp('bams/{sample}.nodup.chr.bam')
-        shell:
-                r"""
-                samtools view -h -F 4 {input} | awk 'substr($0,1,1) == "@" ||\
-                (length($3) <= 5 && $3 != "chrM" && $3 != "*") {{print $0}}' \
-                | samtools view -bS - > {output}
-                """
-rule filter_bam:
-        input:
-                'bams/{sample}.nodup.chr.bam'
-        output:
-                'bams/{sample}.nodup.chr.filt.bam'
-        shell:
-                r"""
-                 samtools view -b -h -q 30 {input} > {output}
-                 samtools index {output}
-                """
-rule indexfiltbam:
-        input:
-                'bams/{sample}.nodup.chr.filt.bam'
-        output:
-                'bams/{sample}.nodup.chr.filt.bam.bai'
-        shell:
-                r"""
-                samtools index {input}
-                """
-rule modifybamname:
-        input:
-                b1 = 'bams/{sample}.nodup.chr.filt.bam',
-        output:
-                b1 = 'bams/{sample}.modified.bam',
-                b2 = 'bams/{sample}.modified.bad.bam',
+                b1 = 'bams/{sample}.potential.bam',
+                b2 = 'bams/{sample}.nonpotential.bam',
+                b1index = 'bams/{sample}.potential.bam.bai',
+                mappingstats = 'mappingstats/{sample}_mappingstats.txt'
         run:
                 import pysam,os
                 bam_handle = pysam.AlignmentFile(input.b1, "rb")
-                out_handle = pysam.AlignmentFile(output.b1, "wb", template=bam_handle)
+                out_handle = pysam.AlignmentFile(output.b1, "wb",
+                                                template=bam_handle)
                 out1_handle = pysam.AlignmentFile(output.b2, "wb",
                                                   template=bam_handle)
                 count = 100000000000
@@ -132,31 +96,91 @@ rule modifybamname:
                     except KeyError:
                         read.query_name = read.query_name+"_"+read.get_tag('CR')+"_"+str(count)
                         out1_handle.write(read)
-                        count = count + 1
+                        #count = count + 1
 
                 bam_handle.close()
                 out_handle.close()
                 out1_handle.close()
-rule indexpybam:
+                shell("samtools index {output.b1}")
+                shell("bash {input.mapping_stats_script} {output.b1} > {output.mappingstats}")
+
+rule rmDuplicates_Barcode:
+        """
+        Remove duplicates within a barcode (no UMI information for 10x sc-atac)
+        """
         input:
-                'bams/{sample}.modified.bam'
+                bam  = "bams/{sample}.potential.bam",
+                mapping_stats_script = config["mappingstatsBASH"],
+                picard = config["picard"]
         output:
-                'bams/{sample}.modified.bam.bai'
+                bam = "bams/{sample}.nodup.bam",
+                index = "bams/{sample}.nodup.bam.bai",
+                dupstats = "bams/{sample}_dup.metrics.txt",
+                mappingstats = "mappingstats/{sample}.nodup_mappingstats.txt"
         shell:
                 r"""
-                samtools index {input}
+                java -Xmx2g -jar {input.picard} MarkDuplicates REMOVE_DUPLICATES=true \
+                VALIDATION_STRINGENCY=LENIENT  BARCODE_TAG=CB  I={input.bam} \
+                O={output.bam}  M={output.dupstats} && \
+                samtools index {output.bam} && \
+                bash {input.mapping_stats_script} {output.bam} > {output.mappingstats}
                 """
-rule shiftedbam:
+#SORTING_COLLECTION_SIZE_RATIO=0.1 \
+
+rule rmUnwanted_Chroms:
+        """
+        Remove unmapped reads, reads mapped to non-standard chrs & chrM
+        """
         input:
-                b1 = 'bams/{sample}.modified.bam',
-                b1index = 'bams/{sample}.modified.bam.bai'
+                bam = 'bams/{sample}.nodup.bam',
+                mapping_stats_script = config["mappingstatsBASH"]
         output:
-                b1 = protected('bams/{sample}.modified.shift.bam'),
+                bam = temp('bams/{sample}.nodup.chr.bam'),
+                index = temp('bams/{sample}.nodup.chr.bam.bai'),
+                mappingstats = "mappingstats/{sample}.nodup.chr_mappingstats.txt"
+        shell:
+                r"""
+                samtools view -h -F 4 {input.bam} | awk 'substr($0,1,1) == "@" ||\
+                (length($3) <= 5 && $3 != "chrM" && $3 != "*") {{print $0}}' \
+                | samtools view -bS - > {output.bam} && \
+                samtools index {output.bam} && \
+                bash {input.mapping_stats_script} {output.bam} > {output.mappingstats}
+                """
+rule Filter_LowQuality:
+        """
+        Remove reads with mapping quality <= 30
+        """
+        input:
+                bam = 'bams/{sample}.nodup.chr.bam',
+                mapping_stats_script = config["mappingstatsBASH"]
+        output:
+                bam = 'bams/{sample}.nodup.chr.filt.bam',
+                index = "bams/{sample}.nodup.chr.filt.bam.bai",
+                mappingstats = "mappingstats/{sample}.nodup.chr.filt_mappingstats.txt"
+        shell:
+                r"""
+                samtools view -b -h -q 30 {input.bam} > {output.bam} &&  \
+                samtools index {output.bam} && \
+                bash {input.mapping_stats_script} {output.bam} > {output.mappingstats}
+                """
+rule ShiftBam:
+        """
+        Shift bam cordinated to recapitulate center of Tn5 binding site
+        """
+        input:
+                b1 = 'bams/{sample}.nodup.chr.filt.bam',
+                b1index = 'bams/{sample}.nodup.chr.filt.bam.bai'
+        output:
+                b1 = protected('bams/{sample}.modified.shift.bam')
+        threads: 4
         shell:
                 r"""
                 alignmentSieve --ATACshift -p 4 -b  {input.b1} -o {output.b1}
                 """
-rule sortshiftedbam:
+rule SortShiftedBam:
+        """
+        sort shifted bam file
+        """
         input:
                 'bams/{sample}.modified.shift.bam'
         output:
@@ -165,13 +189,16 @@ rule sortshiftedbam:
         threads: 4
         shell:
                 r"""
-                samtools sort --threads 3  {input} -o {output.bam} && \
+                samtools sort --threads 4  {input} -o {output.bam} && \
                 samtools index {output.bam}
                 """
 
-rule bedwithbarcode:
+rule ConvertBedBarcode:
+        """
+        convert to bed file with barcode information as the 7th column
+        """
         input:
-                'bams/{sample}.modified.bam'
+                'bams/{sample}.nodup.chr.filt.bam'
         output:
                 protected('beds/{sample}.modifed.shift.barcode.bed')
         shell:
@@ -183,7 +210,10 @@ rule bedwithbarcode:
                 else {{print $3,$4-1,$4-1+length($10)-5,$1,$5,"-",cb}} }}' > \
                 {output}
                 """
-rule make_bedgraph_and_bigwig:
+rule Make_Bigwig:
+        """
+        make bedgraph & bigwig using entire reads
+        """
         input:
                 bam = 'bams/{sample}.modified.shift.bam',
                 bed = 'beds/{sample}.modifed.shift.barcode.bed',
@@ -207,7 +237,10 @@ rule make_bedgraph_and_bigwig:
                 {output.bigwig}
                 """
 
-rule call_macs_peaks:
+rule Call_Peaks:
+        """
+        call peaks using macs2
+        """
         input:
                 'beds/{sample}.modifed.shift.barcode.bed'
         output:
@@ -216,7 +249,6 @@ rule call_macs_peaks:
         params:
                 prefix = '{sample}',
                 genome = return_macsgenome
-
         shell:
                 r"""
                 source activate py2.7
@@ -232,7 +264,10 @@ rule call_macs_peaks:
                 --nomodel --nolambda --verbose 3
                 """
 
-rule remove_blacklist:
+rule Remove_Blacklist:
+        """
+        Remove peaks in ENCODE blacklisted region
+        """
         input:
                 peak1 = 'peaks/default/{sample}_peaks.narrowPeak',
                 peak2 = 'peaks/q1e5/{sample}_peaks.narrowPeak',
@@ -247,7 +282,10 @@ rule remove_blacklist:
                 intersectBed -v -a {input.peak2} -b {input.blacklist} \
                 > {output.peak2}
                 """
-rule make_peak_track:
+rule Make_BigBed:
+        """
+        create Bigbed file for peaks region
+        """
         input:
                 peak1 = 'peaks/default/{sample}_peaks.narrowPeak.cleared',
                 peak2 = 'peaks/q1e5/{sample}_peaks.narrowPeak.cleared',
@@ -272,7 +310,10 @@ rule make_peak_track:
                 rm {params.temp1}
                 rm {params.temp2}
                 """
-rule plot_insertsize:
+rule Plot_Insertsize:
+        """
+        Plot insersize
+        """
         input:
                 bam = "bams/{sample}.modified.shift.bam",
                 Rcode = config["insertsizeR"]
@@ -284,7 +325,10 @@ rule plot_insertsize:
                 {output} && \
                 Rscript {input.Rcode} {output}
                 """
-rule create_saf:
+rule Create_Saf:
+        """
+        create saf file for the peaks
+        """
         input:
                 p1 = 'peaks/default/{sample}_peaks.narrowPeak.cleared',
                 p2 = "peaks/q1e5/{sample}_peaks.narrowPeak.cleared"
@@ -300,7 +344,10 @@ rule create_saf:
                 awk -v OFS='\t' '{{print "r"NR"_"$1"."$2"."$3,$1,$2,$3,"."}}'\
                 > {output.p2}
                 """
-rule count_reads_barcodes:
+rule Count_BCReads:
+        """
+        count the number of reads in each of the barcode
+        """
         input:
                 "beds/{sample}.modifed.shift.barcode.bed"
         output:
@@ -310,7 +357,10 @@ rule count_reads_barcodes:
                 cat {input}|cut -f7|sort|uniq -c|awk '{{print $2"\t"$1}}'|sort -k2,2nr -k1,1  > {output}
                 """
 #bamToBed -i SINAA2.modified.shift.sorted.bam|head|cut -f4|cut -d'_' -f2|sort|uniq -c|awk '{print $1"\t"$2}'
-rule featurebam1:
+rule Featurebam_default:
+        """
+        create featurebams for default peaks
+        """
         input:
                 p1 = "peaks/default/{sample}_peak.saf",
                 bam = 'bams/{sample}.modified.shift.sorted.bam',

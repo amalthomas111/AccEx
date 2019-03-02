@@ -1,5 +1,4 @@
 genome: "mm10"
-#path to index, inputfile, change accordingly
 hg38_bowtie2_index: "/auto/rcf-40/amalthom/panases_soft/Bowtie_Indexes/bowtie2_index/hg38.p10/hg38.p10"
 hg38_bowtie1_index: "/home/rcf-40/amalthom/panases_soft/Bowtie_Indexes/bowtie/hg38.p10/hg38.p10"
 hg38_blacklist: "/home/rcf-40/amalthom/panases_soft/genomes/blacklist/hg38.blacklist.bed"
@@ -13,10 +12,11 @@ mm10_bowtie2_index: "/home/rcf-40/amalthom/panases_soft/Bowtie_Indexes/bowtie2_i
 mm10_blacklist: "/home/rcf-40/amalthom/panases_soft/genomes/blacklist/mm10.blacklist.bed"
 mm10_sizes: "/home/rcf-40/amalthom/panases_soft/genomes/sizes/mouse.mm10.genome.sizes"
 dm6_bowtie1_index: "/home/rcf-40/amalthom/panases_soft/Bowtie_Indexes/bowtie2_index/dm6/dm6"
-picard_markdup: "/home/rcf-40/amalthom/panases_soft/picard_1.122/MarkDuplicates.jar"
+picard: "/panfs/cmb-panasas2/amalthom/software/anaconda3.5.2/share/picard-2.18.9-0/picard.jar"
 cell_callingR: "/auto/rcf-40/amalthom/codes/atac-chip/singlecell/10x_atac/findknee_default_fitmidRank.R"
 insertsizeR: "/auto/rcf-40/amalthom/codes/atac-chip/singlecell/10x_atac/getinsertsize.R"
 filterR: "/auto/rcf-40/amalthom/codes/atac-chip/singlecell/10x_atac/filtercells_2wide.R"
+mappingstatsBASH: "/auto/rcf-40/amalthom/codes/mapping_stats.sh"
 prom_enh_open_saf : "/panfs/cmb-panasas2/amalthom/software/genomes/promoter/mmusculus_GRCm38.p6_promoters2.5kb-enhancer-openchrom.merged.saf"
 promoter_saf: "/panfs/cmb-panasas2/amalthom/software/genomes/promoter/mmusculus_GRCm38.p6_promoters_std.Chr.2.5kb.sorted.merged.saf"
 enhancer_saf: "/panfs/cmb-panasas2/amalthom/software/genomes/promoter/mm10_95_regulation_enchancer.merged.saf"
