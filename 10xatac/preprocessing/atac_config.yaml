@@ -21,3 +21,4 @@ prom_enh_open_saf : "/panfs/cmb-panasas2/amalthom/software/genomes/promoter/mmus
 promoter_saf: "/panfs/cmb-panasas2/amalthom/software/genomes/promoter/mmusculus_GRCm38.p6_promoters_std.Chr.2.5kb.sorted.merged.saf"
 enhancer_saf: "/panfs/cmb-panasas2/amalthom/software/genomes/promoter/mm10_95_regulation_enchancer.merged.saf"
 promoter_enh_open_bed: "/panfs/cmb-panasas2/amalthom/software/genomes/promoter/mmusculus_GRCm38.p6_promoters2.5kb-enhancer-openchrom.merged.bed"
+plotpreseqR: "/auto/rcf-40/amalthom/codes/plotPreseq.R"

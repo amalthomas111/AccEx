@@ -65,6 +65,8 @@ rule all:
                 expand("countstable/{sample}.default.mtx",sample=SAMPLES),
                 expand("countstable/{sample}.default_regions.tsv",sample=SAMPLES),
                 expand("countstable/{sample}.default_barcodes.tsv",sample=SAMPLES)
+                expand("preseq/{sample}.potential.extrap.txt",sample=SAMPLES),
+                expand("preseq/plots/{sample}.potential_complexity_expected.pdf",sample=SAMPLES)
 
 
 rule Filter_ErrorCorrectedBCs:
@@ -119,7 +121,7 @@ rule rmDuplicates_Barcode:
                 mappingstats = "mappingstats/{sample}.nodup_mappingstats.txt"
         shell:
                 r"""
-                java -Xmx2g -jar {input.picard} MarkDuplicates REMOVE_DUPLICATES=true \
+                java -Xmx32g -jar {input.picard} MarkDuplicates REMOVE_DUPLICATES=true \
                 VALIDATION_STRINGENCY=LENIENT  BARCODE_TAG=CB  I={input.bam} \
                 O={output.bam}  M={output.dupstats} && \
                 samtools index {output.bam} && \
@@ -628,4 +630,15 @@ rule filter_convert2wide:
         shell:
                 r"""
                 Rscript {input.rcode} {input.whitelist} {input.counts_long}
+                """
+rule runpreseq:
+        input:
+                bam = "bams/{sample}.potential.bam",
+                Rscript = config["plotpreseqR"]
+        output:
+                extrap = "preseq/{sample}.potential.extrap.txt",
+                plot = "preseq/plots/{sample}.potential_complexity_expected.pdf"
+        shell:
+                """
+                Rscript {input.Rscript} {input.bam}
                 """

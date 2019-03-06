@@ -7,12 +7,12 @@ bowtie2_mapping:
         mem : "24000MB"
         ntasks : "4"
 rmDuplicates_Barcode:
-        mem: "30000MB"
+        mem: "48000MB"
 ShiftBam:
-        mem : "16000MB"
+        mem : "32000MB"
         ntasks : "4"
 SortShiftedBam:
-        mem : "20000MB"
+        mem : "32000MB"
         ntasks : "4"
 Featurebam_default:
         mem : "16000MB"
@@ -34,3 +34,5 @@ featurebam_promoter:
         ntasks: "4"
 filter_convert2wide:
         mem : "20000MB"
+runpreseq:
+        mem : "25000MB"
