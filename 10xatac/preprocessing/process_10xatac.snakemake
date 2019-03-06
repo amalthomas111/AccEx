@@ -109,6 +109,9 @@ rule Filter_ErrorCorrectedBCs:
 rule rmDuplicates_Barcode:
         """
         Remove duplicates within a barcode (no UMI information for 10x sc-atac)
+        Note: depending on the size of input bam file, you need to allocate
+        the heap size for java for picard to run properly. Here I have set
+        32gb which should be sufficient for bams of size upto 20Gb.
         """
         input:
                 bam  = "bams/{sample}.potential.bam",

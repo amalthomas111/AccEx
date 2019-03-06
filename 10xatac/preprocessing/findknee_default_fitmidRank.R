@@ -36,23 +36,42 @@ fit1 <- smooth.spline(x=x, y=y, cv = TRUE)
 x.p =predict(fit1)$x
 y.p = predict(fit1)$y
 d1 = predict(fit1,deriv = 1)$y
-inflection.g = which.min(d1)
-inflection.g
-x.p[inflection.g]
-
-
-threshold = 10^y.p[inflection.g]
-selected = reads_per_barcode[reads_per_barcode[,2] > threshold,]
-no.of.cells = nrow(selected)
-median.reads = median(selected$reads)
-mean.reads = round(mean(selected$reads),2)
-lowest = tail(selected,n=1)[,2]
 
 mainDir=getwd()
 subDir="midrank_inflection"
 dir.create(file.path(mainDir,subDir), showWarnings = FALSE)
 subDir="selected"
 dir.create(file.path(mainDir,subDir), showWarnings = FALSE)
+
+if(!file.exists(paste0("midrank_inflection/",outputname,"_cutoff.txt"))){
+    cat("\nPreexisting inflection point not found!\n")
+    inflection.g = which.min(d1)
+    cat("\n inflection point:",inflection.g)
+    cat("\n inflection value:",x.p[inflection.g])
+    cat("\n no of cells selected:", 
+        nrow(reads_per_barcode[reads_per_barcode[,2] > 10^y.p[inflection.g],]),"\n")
+
+    line = paste0(inflection.g)
+    write(line,file=paste0("midrank_inflection/",outputname,"_cutoff.txt"))
+
+}else{
+    cat("\nPre calculated inflection point found!")
+    data = read.table(paste0("midrank_inflection/",outputname,"_cutoff.txt"))
+    inflection.g = data$V1
+    cat("\n inflection point:",inflection.g)
+    cat("\n inflection value:",x.p[inflection.g])
+    cat("\n no of cells selected:", 
+        nrow(reads_per_barcode[reads_per_barcode[,2] > 10^y.p[inflection.g],]),"\n")
+}
+
+
+threshold = 10^y.p[inflection.g]
+selected = reads_per_barcode[reads_per_barcode[,2] > threshold,]
+no.of.cells = nrow(selected)
+cat("\nFinally no of cells selected:",no.of.cells,"\n")
+median.reads = median(selected$reads)
+mean.reads = round(mean(selected$reads),2)
+lowest = tail(selected,n=1)[,2]
 
 png(filename = paste0("midrank_inflection/",outputname,".png") )
 plot(x=x.p,y=y.p,xlab = "log10(barcode Rank)",ylab= "log10(# barcodes)")

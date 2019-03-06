@@ -9,4 +9,4 @@ Input files:
  - BASH: mapping_stats.sh
 
 Software Requirements:
-picard, samtools, BEDtools, deeptools, MACS2, featurCounts,umi-tools, R, python3
+picard, samtools, BEDtools, deeptools, MACS2, featurCounts,umi-tools, R, python3, preseq
