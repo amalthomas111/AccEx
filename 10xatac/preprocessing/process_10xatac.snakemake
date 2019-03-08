@@ -64,7 +64,7 @@ rule all:
                 expand("beds/{sample}_default.barcode.counts.txt",sample=SAMPLES),
                 expand("countstable/{sample}.default.mtx",sample=SAMPLES),
                 expand("countstable/{sample}.default_regions.tsv",sample=SAMPLES),
-                expand("countstable/{sample}.default_barcodes.tsv",sample=SAMPLES)
+                expand("countstable/{sample}.default_barcodes.tsv",sample=SAMPLES),
                 expand("preseq/{sample}.potential.extrap.txt",sample=SAMPLES),
                 expand("preseq/plots/{sample}.potential_complexity_expected.pdf",sample=SAMPLES)
 
